@@ -1,0 +1,4 @@
+snipe_host: "https://tu-instancia-snipe-it/api/v1"
+snipe_key: "TU_CLAVE_API"
+model_id: 123
+status_id: 4
