@@ -1,0 +1,170 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Estructura para la configuración
+type Config struct {
+	SnipeHost    string            `yaml:"snipe_host"`
+	SnipeKey     string            `yaml:"snipe_key"`
+	StatusID     int               `yaml:"status_id"`
+	ModelID      int               `yaml:"model_id"`
+	LocationID   int               `yaml:"location_id"`
+	CustomFields map[string]string `yaml:"custom_fields"`
+}
+
+// Estructura para los activos
+type Asset struct {
+	Name         string            `json:"name"`
+	Serial       string            `json:"serial"`
+	ModelID      int               `json:"model_id"`
+	StatusID     int               `json:"status_id"`
+	LocationID   int               `json:"location_id"`
+	AssetTag     string            `json:"asset_tag,omitempty"`
+	CustomFields map[string]string `json:"custom_fields,omitempty"`
+}
+
+var config Config
+
+// Cargar configuración desde config.yaml
+func loadConfig() {
+	configFile, err := os.ReadFile("config.yaml")
+	if err != nil {
+		log.Fatalf("❌ Error al leer el archivo de configuración: %v", err)
+	}
+
+	if err := yaml.Unmarshal(configFile, &config); err != nil {
+		log.Fatalf("❌ Error al analizar la configuración: %v", err)
+	}
+
+	if config.SnipeHost == "" || config.SnipeKey == "" || config.ModelID == 0 || config.StatusID == 0 || config.LocationID == 0 {
+		log.Fatal("❌ ERROR: Faltan valores obligatorios en config.yaml. Asegúrate de incluir 'snipe_host', 'snipe_key', 'model_id', 'status_id' y 'location_id'.")
+	}
+}
+
+// Función para hacer solicitudes a la API de Snipe-IT
+func apiRequest(method, endpoint string, data interface{}) ([]byte, error) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("❌ Error al serializar JSON: %v", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequest(method, config.SnipeHost+endpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("❌ Error al crear solicitud %s: %v", method, err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+config.SnipeKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("❌ Error al realizar solicitud %s: %v", method, err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("❌ Error al leer la respuesta del cuerpo: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("ERROR: Código de estado %d - %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return bodyBytes, nil
+}
+
+// Crear activo en Snipe-IT
+func createAsset(asset Asset) error {
+	response, err := apiRequest("POST", "/api/v1/hardware", asset)
+	if err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(response, &result); err != nil {
+		return fmt.Errorf("❌ Error al analizar la respuesta JSON: %v", err)
+	}
+
+	if result["status"] != "success" {
+		return fmt.Errorf("❌ Error en la API: %s", result["messages"])
+	}
+
+	log.Println("✅ Activo creado con éxito:")
+	log.Println("📌 ID del activo:", result["payload"].(map[string]interface{})["id"])
+	log.Println("🏷️  Nombre:", result["payload"].(map[string]interface{})["name"])
+	return nil
+}
+
+// Función principal
+func main() {
+	loadConfig()
+
+	newAsset := Asset{
+		Name:       getHostname(),
+		Serial:     getSerialNumber(),
+		ModelID:    config.ModelID,
+		StatusID:   config.StatusID,
+		LocationID: config.LocationID,
+		AssetTag:   "AGENT-" + getHostname(),
+		CustomFields: map[string]string{
+			config.CustomFields["procesador"]: getCPUInfo(),
+		},
+	}
+
+	if err := createAsset(newAsset); err != nil {
+		log.Fatalf("❌ Error al crear el activo: %v", err)
+	}
+}
+
+// Funciones para obtener información del sistema
+func getHostname() string {
+	name, err := os.Hostname()
+	if err != nil {
+		log.Printf("❌ Advertencia: No se pudo obtener el nombre del host. Usando valor por defecto. Error: %v", err)
+		return "Unknown-Host"
+	}
+	return strings.TrimSpace(name)
+}
+
+func getCPUInfo() string {
+	return formatWmicOutput(runWmicCommand("cpu", "get", "name"))
+}
+
+func getSerialNumber() string {
+	return formatWmicOutput(runWmicCommand("bios", "get", "serialnumber"))
+}
+
+func runWmicCommand(args ...string) string {
+	cmd := exec.Command("wmic", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("❌ ERROR: Fallo al ejecutar el comando wmic %v: %v", args, err)
+		return ""
+	}
+	return string(output)
+}
+
+func formatWmicOutput(output string) string {
+	lines := strings.Split(output, "\n")
+	if len(lines) > 1 {
+		return strings.TrimSpace(lines[1])
+	}
+	return strings.TrimSpace(output)
+}
