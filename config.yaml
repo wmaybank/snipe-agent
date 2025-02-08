@@ -1,4 +1,19 @@
-snipe_host: "https://tu-instancia-snipe-it/api/v1"
+snipe_host: "https://tu-instancia-snipe-it"
 snipe_key: "TU_CLAVE_API"
-model_id: 123
-status_id: 4
+status_id: 1
+model_id: 2 
+location_id: 1
+
+custom_fields:
+  procesador: "_snipeit_procesador_2"
+  numero_de_nucleos: "_snipeit_numero_de_nucleos_3"
+  hilos_del_procesador: "_snipeit_hilos_del_procesador_4"
+  memoria_ram: "_snipeit_memoria_ram_5"
+  velocidad_ram: "_snipeit_velocidad_ram_6"
+  disco_duro: "_snipeit_disco_duro_7"
+  tarjeta_grafica: "_snipeit_tarjeta_grafica_8"
+  version_bios: "_snipeit_version_de_la_bios_9"
+  placa_base: "_snipeit_placa_base_10"
+  sistema_operativo: "_snipeit_sistema_operativo_11"
+  numero_serie: "_snipeit_numero_de_serie_12"
+  direccion_mac: "_snipeit_direccion_mac_13"
